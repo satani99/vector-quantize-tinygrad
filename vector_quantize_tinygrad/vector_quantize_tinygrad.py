@@ -108,6 +108,10 @@ def gumbel_sample(
 
     return ind, one_hot
 
+def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
+    denom = x.sum(axis=axis, keepdim=True)
+    return (x + eps) / (denom + n_categories * eps)
+
 
 
 
