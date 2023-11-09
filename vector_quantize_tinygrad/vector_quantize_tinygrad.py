@@ -4,6 +4,7 @@ import tinygrad
 import numpy as np 
 from tinygrad.tensor import Tensor 
 from tinygrad import nn
+from tinygrad.helpers import dtypes
 from einops import rearrange, repeat, reduce, pack, unpack
 
 from typing import Callable
@@ -112,8 +113,43 @@ def laplace_smoothing(x, n_categories, eps = 1e-5, dim = -1):
     denom = x.sum(axis=axis, keepdim=True)
     return (x + eps) / (denom + n_categories * eps)
 
+def sample_vectors(samples, num):
+    num_samples, device = samples.shape[0], samples.device 
+    if num_samples >= num:
+        indices = Tensor(np.random.permutation(num_samples), device=device)[:num]
+    else:
+        indices = Tensor(np.random.randint(0, num_samples, size=(num,)), device=device) 
 
+    return samples[indices] 
 
+def unbind(t, axis=0):
+    sub_tensor = np.split(t, t.shape[axis], axis)
+    return Tensor(sub_tensor)
+
+def batched_sample_vectors(samples, num):
+    return Tensor.stack([sample_vectors(sample, num) for sample in unbind(samples, axis=0)], dim=0)
+
+def pad_shape(shape, size, dim=0):
+    return [size if i == dim else s for i, s in enumerate(shape)]
+
+def sample_multinomial(total_count, probs):
+    device = probs.device 
+    probs = probs.cpu() 
+
+    total_count = probs.full((), total_count)
+    remainder = probs.ones(())
+    sample = Tensor.empty(*probs.shape, dtype=dtypes.int8)
+
+    for i, p in enumerate(probs):
+        s = Tensor(np.random.binomial(total_count.numpy(), (p / remainder).numpy()))
+        sample[i] = s 
+        total_count -= s 
+        remainder -= p 
+
+    return sample.to(device)
+
+def all_gather_sizes(x, dim):
+    size = 
 
 
 
