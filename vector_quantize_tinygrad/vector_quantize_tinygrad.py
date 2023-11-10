@@ -129,7 +129,7 @@ def unbind(t, axis=0):
 def batched_sample_vectors(samples, num):
     return Tensor.stack([sample_vectors(sample, num) for sample in unbind(samples, axis=0)], dim=0)
 
-def pad_shape(shape, size, dim=0):
+def     shape(shape, size, dim=0):
     return [size if i == dim else s for i, s in enumerate(shape)]
 
 def sample_multinomial(total_count, probs):
@@ -148,8 +148,36 @@ def sample_multinomial(total_count, probs):
 
     return sample.to(device)
 
+def get_world_size(distributed_tensor):
+    return distributed_tensor.shape[0]
+
+def all_gather(local_data):
+    global_data = np.ndarray((world_size, *local_data.shape))
+    for i in range(world_size):
+        global_data[i, :] = local_data
+    return Tensor(global_data)
+
 def all_gather_sizes(x, dim):
-    size = 
+    size = Tensor(x.shape[dim], dtype=dtypes.int8, device=x.device)
+    world_size = get_world_size(x)
+    all_sizes = all_gather(size)
+    return Tensor.stack(all_sizes)
+
+def get_rank(tensor):
+    ranks = tensor.shape[0]
+    return ranks
+
+def new_empty(l):
+    return Tensor(np.empty_like(np.ndarray((*l))))
+
+def all_gather_variably_sized(x, sizes, dim=0):
+    rank = get_rank(x)
+    all_x = []
+
+    for i, size in enumerate(sizes):
+        t = x if i == rank else new_empty(pad_shape(x.shape, size, dim))
+        
+
 
 
 
