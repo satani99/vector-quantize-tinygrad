@@ -30,7 +30,7 @@ def normalize(t, p=2, axis=1, eps=1e-12):
 def l2norm(t):
     return normalize(t, p=2, dim=-1)
 
-def cdlist(x, y):
+def cdist(x, y):
     x2 = reduce(x.numpy() ** 2, 'b n d -> b n', 'sum')
     y2 = reduce(y.numpy() ** 2, 'b n d -> b n', 'sum')
     xy = np.einsum('b i d, b j d -> b i j', x.numpy(), y.numpy()) * -2 
@@ -215,7 +215,7 @@ def sample_vectors_distributed(local_samples, num):
     return rearrange(out, '... -> 1 ...')
 
 def scatter_add(target, indices, updates):
-    np.add.at(target, indices, updates)
+    Tensor(np.add.at(target.numpy(), indices.numpy(), updates.numpy()))
 
 def batched_bincount(x, *, minlength):
     batch, dtype, device = x.shape[0], x.dtype, x.device 
@@ -223,6 +223,41 @@ def batched_bincount(x, *, minlength):
     values = Tensor.ones(*x.shape)
     scatter_add(target, x, values)
     return target 
+
+def kmeans(
+    samples,
+    num_clusters,
+    num_iters=10,
+    use_cosine_sim = False, 
+    sample_fn = batched_sample_vectors,
+    all_reduce_fn = noop,
+):
+    num_codebooks, dim, dtype, device = samples.shape[0], samples.shape[-1], samples.dtype, samples.device 
+
+    means = sample_fn(samples, num_clusters)
+
+    for _ in range(num_iters):
+        if use_cosine_sim:
+            dists = samples.matmul(rearrange(means, 'h n d -> h d n'))
+        else:
+            dists = -cdist(samples, means)
+
+        buckets = dists.argmax(axis=-1)
+        bins = batched_bincount(buckets, minlength = num_clusters)
+        all_reduce_fn(new_means)
+
+        if use_cosine_sim:
+            new_means = l2norm(new_means)
+
+        means = Tensor(np.where(
+            rearrange(zero_mask, '... -> ... 1').numpy(),
+            means.numpy(),
+            new_means.numpy(),
+        ))
+
+    return means, bins 
+
+
 
 
 
