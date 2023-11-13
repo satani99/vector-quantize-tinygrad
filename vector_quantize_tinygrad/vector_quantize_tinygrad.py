@@ -6,7 +6,7 @@ from tinygrad.tensor import Tensor
 from tinygrad import nn
 from tinygrad.helpers import dtypes
 from einops import rearrange, repeat, reduce, pack, unpack
-
+from mpi4py import MPI 
 from typing import Callable
 
 def exists(val):
@@ -129,7 +129,7 @@ def unbind(t, axis=0):
 def batched_sample_vectors(samples, num):
     return Tensor.stack([sample_vectors(sample, num) for sample in unbind(samples, axis=0)], dim=0)
 
-def     shape(shape, size, dim=0):
+def pad_shape(shape, size, dim=0):
     return [size if i == dim else s for i, s in enumerate(shape)]
 
 def sample_multinomial(total_count, probs):
@@ -170,13 +170,60 @@ def get_rank(tensor):
 def new_empty(l):
     return Tensor(np.empty_like(np.ndarray((*l))))
 
+def broadcast(tensor, root_rank, current_rank=0):
+    comm = MPI.COMM_WORLD
+    if current_rank == root_rank:
+        for i in range(world_size):
+            for i != root_rank:
+                comm.send(tensor, dest=i)
+    else:
+        tensor = comm.recv(source=root_rank)
+def barrier():
+    comm = MPI.COMM_WORLD 
+    comm.Barrier()
+
 def all_gather_variably_sized(x, sizes, dim=0):
     rank = get_rank(x)
     all_x = []
 
     for i, size in enumerate(sizes):
         t = x if i == rank else new_empty(pad_shape(x.shape, size, dim))
-        
+        broadcast(t, root_rank=i, current_rank=i)
+        all_x.append(t)
+    
+    barrier() 
+    return all_x
+    
+def sample_vectors_distributed(local_samples, num):
+    local_samples = rearrange(local_samples, '1 ... -> ...')
+
+    rank = get_rank(local_samples)
+    all_num_samples = all_gather_sizes(local_samples, dim=0)
+
+    if rank == 0:
+        samples_per_rank = sample_multinomial(num, all_num_samples / all_num_samples.sum())
+    else:
+        samples_per_rank = Tensor.empty(*all_num_samples.shape)
+
+    broadcast(samples_per_rank, root_rank=0)
+    samples_per_rank = samples_per_rank.numpy().tolist()
+
+    local_samples = sample_vectors(local_samples, samples_per_rank[rank])
+    all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
+    out = Tensor.cat(*all_samples, dim=0)
+
+    return rearrange(out, '... -> 1 ...')
+
+def scatter_add(target, indices, updates):
+    np.add.at(target, indices, updates)
+
+def batched_bincount(x, *, minlength):
+    batch, dtype, device = x.shape[0], x.dtype, x.device 
+    target = Tensor.zeros(batch, minlength, dtype=dtype, device=device)
+    values = Tensor.ones(*x.shape)
+    scatter_add(target, x, values)
+    return target 
+
 
 
 
