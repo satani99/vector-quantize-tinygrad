@@ -195,7 +195,7 @@ def all_gather_variably_sized(x, sizes, dim=0):
     return all_x
     
 def sample_vectors_distributed(local_samples, num):
-    local_samples = rearrange(local_samples, '1 ... -> ...')
+    local_samples = Tensor(rearrange(local_samples.numpy(), '1 ... -> ...'))
 
     rank = get_rank(local_samples)
     all_num_samples = all_gather_sizes(local_samples, dim=0)
@@ -212,7 +212,7 @@ def sample_vectors_distributed(local_samples, num):
     all_samples = all_gather_variably_sized(local_samples, samples_per_rank, dim = 0)
     out = Tensor.cat(*all_samples, dim=0)
 
-    return rearrange(out, '... -> 1 ...')
+    return Tensor(rearrange(out.numpy(), '... -> 1 ...'))
 
 def scatter_add(target, indices, updates):
     Tensor(np.add.at(target.numpy(), indices.numpy(), updates.numpy()))
@@ -238,7 +238,7 @@ def kmeans(
 
     for _ in range(num_iters):
         if use_cosine_sim:
-            dists = samples.matmul(rearrange(means, 'h n d -> h d n'))
+            dists = samples.matmul(Tensor(rearrange(means.numpy(), 'h n d -> h d n')))
         else:
             dists = -cdist(samples, means)
 
@@ -250,15 +250,28 @@ def kmeans(
             new_means = l2norm(new_means)
 
         means = Tensor(np.where(
-            rearrange(zero_mask, '... -> ... 1').numpy(),
+            rearrange(zero_mask.numpy(), '... -> ... 1'),
             means.numpy(),
             new_means.numpy(),
         ))
 
     return means, bins 
 
+def batched_embedding(indices, embeds):
+    batch, dim = indices.shape[1], embeds.shape[-1]
+    indices = Tensor(repeat(indices.numpy(), 'h b n -> h b n d', d = dim))
+    embeds = Tensor(repeat(embeds.numpy(), 'h c d -> h b c d', b = batch))
+    return embeds.gather(indices, 2)
 
+# regularization losses 
 
+def orthogonal_loss_fn(t):
+    h, n = t.shape[:2]
+    normed_codes = l2norm(t)
+    cosine_sim = Tensor(np.einsum('h i d, h j d -> h i j', normed_codes.numpy(), normed_codes.numpy()))
+    return (cosine_sim ** 2).sum() / (h * n ** 2) - (1 / n)
+
+# distance type
 
 
 
