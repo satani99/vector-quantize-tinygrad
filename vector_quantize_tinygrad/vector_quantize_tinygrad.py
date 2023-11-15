@@ -271,7 +271,66 @@ def orthogonal_loss_fn(t):
     cosine_sim = Tensor(np.einsum('h i d, h j d -> h i j', normed_codes.numpy(), normed_codes.numpy()))
     return (cosine_sim ** 2).sum() / (h * n ** 2) - (1 / n)
 
-# distance type
+def all_reduce(data):
+    comm = MPI.COMM_WORLD
+    result = np.zeros_like(data.numpy())
+    comm.Allreduce(data.numpy(), result, op=MPI.SUM)
+    return Tensor(result)
+
+# distance types
+
+class EuclideanCodeBook():
+    def __init__(
+        self,
+        dim,
+        codebook_size,
+        num_codebooks = 1,
+        kmeans_init = False,
+        kmeans_iters = 10,
+        sync_kmeans = True,
+        decay = 0.8,
+        eps = 1e-5,
+        threshold_ema_dead_code = 2,
+        reset_cluster_size = None,
+        use_ddp = False,
+        learnable_codebook = False,
+        gumbel_sample = gumbel_sample,
+        sample_codebook_temp = 1.,
+        ema_update = True,
+        affine_param = False,
+        sync_affine_param = False,
+        affine_param_batch_decay = 0.99,
+        affine_param_codebook_decay = 0.9
+    ):
+        super().__init__()
+        self.transform_input = identity 
+
+        self.decay = decay 
+        self.ema_update = ema_update 
+
+        init_fn = uniform_init if not kmeans_init else Tensor.zeros 
+        embed = init_fn(num_codebooks, codebook_size, dim)
+
+        self.codebook_size = codebook_size 
+        self.num_codebooks = num_codebooks 
+
+        self.kmeans_iters = kmeans_iters 
+        self.eps = eps 
+        self.threshold_ema_dead_code = threshold_ema_dead_code 
+        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+
+        assert Callable(gumbel_sample)
+        self.gumbel_sample = gumbel_sample 
+        self.sample_codebook_temp = sample_codebook_temp 
+
+        assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
+
+        self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors 
+        self.kmeans_all_reduce_fn = all_reduce if use_ddp and sync_kmeans else noop 
+        self.all_reduce_fn = all_reduce if use_ddp else noop 
+
+        self.learnable_codebook = learnable_codebook 
+        
 
 
 
